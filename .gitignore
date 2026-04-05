@@ -1,0 +1,18 @@
+# Environnement virtuel
+.venv/
+
+# Données SIRENE en cache (volumineuses, régénérables)
+cache_sirene/
+
+# Base de données de prospection (données personnelles)
+prospection.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

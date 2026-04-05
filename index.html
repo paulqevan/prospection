@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recherche secteur — SIRENE</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    header h1 { font-size: 1.15rem; font-weight: 600; flex: 1; }
+    header span { font-size: 0.85rem; opacity: 0.55; }
+
+    /* ── Tabs ── */
+    .tabs {
+      max-width: 1100px;
+      margin: 1.5rem auto 0;
+      padding: 0 1rem;
+      display: flex;
+      gap: 0.25rem;
+    }
+    .tab-btn {
+      padding: 0.55rem 1.25rem;
+      border: none;
+      border-radius: 8px 8px 0 0;
+      background: #e5e7eb;
+      color: #6b7280;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .tab-btn.active { background: #fff; color: #1a1a2e; box-shadow: 0 -2px 0 #4f6ef7 inset; }
+    .tab-btn .count-badge {
+      background: #4f6ef7; color: #fff;
+      font-size: 0.72rem; font-weight: 700;
+      padding: 0.1rem 0.45rem; border-radius: 999px; display: none;
+    }
+    .tab-btn .count-badge.visible { display: inline; }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1rem 2rem;
+    }
+    .tab-panel { display: none; padding-top: 1.5rem; }
+    .tab-panel.active { display: block; }
+
+    /* ── Search card ── */
+    .search-card {
+      background: #fff;
+      border-radius: 0 12px 12px 12px;
+      padding: 1.5rem 2rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,.07);
+      margin-bottom: 1.5rem;
+    }
+    .search-row { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; }
+
+    .field-wrap { display: flex; flex-direction: column; gap: 0.3rem; }
+    .field-wrap label { font-size: 0.78rem; color: #6b7280; }
+
+    .select-wrap { position: relative; }
+    .select-wrap select {
+      padding: 0.65rem 2rem 0.65rem 2.4rem;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      outline: none;
+      background: #fff;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+    .select-wrap select:focus { border-color: #4f6ef7; }
+    .select-wrap .icon {
+      position: absolute; left: 0.75rem; top: 50%;
+      transform: translateY(-50%); color: #9ca3af; pointer-events: none;
+    }
+    .select-wrap .chevron {
+      position: absolute; right: 0.75rem; top: 50%;
+      transform: translateY(-50%); color: #9ca3af; pointer-events: none;
+    }
+
+    #activiteWrap { flex: 1; min-width: 200px; }
+    #activiteWrap select { width: 100%; }
+
+    .filter-year input {
+      width: 110px;
+      padding: 0.65rem 0.75rem;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .filter-year input:focus { border-color: #4f6ef7; }
+
+    /* ── Results ── */
+    .results-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .results-header h2 { font-size: 0.95rem; font-weight: 600; color: #374151; }
+    .badge {
+      background: #eef2ff; color: #4f6ef7;
+      font-size: 0.78rem; font-weight: 600;
+      padding: 0.2rem 0.65rem; border-radius: 999px;
+    }
+    .table-wrap {
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.07); overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    thead th {
+      background: #f8fafc; padding: 0.65rem 1rem; text-align: left;
+      font-weight: 600; color: #6b7280; font-size: 0.78rem;
+      text-transform: uppercase; letter-spacing: .04em; border-bottom: 1.5px solid #e5e7eb;
+    }
+    tbody tr { transition: background .15s; }
+    tbody tr:hover { background: #f8fafc; }
+    tbody td { padding: 0.65rem 1rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
+    tbody tr:last-child td { border-bottom: none; }
+
+    .ape-chip {
+      background: #f0fdf4; color: #16a34a; border-radius: 4px;
+      padding: 0.15rem 0.4rem; font-size: 0.78rem; font-weight: 600; font-family: monospace;
+    }
+    .cp-chip {
+      background: #f5f3ff; color: #7c3aed; border-radius: 4px;
+      padding: 0.15rem 0.4rem; font-size: 0.78rem; font-weight: 600; font-family: monospace;
+    }
+
+    .btn-add {
+      background: none; border: 1.5px solid #d1d5db; border-radius: 6px;
+      padding: 0.25rem 0.5rem; cursor: pointer; color: #6b7280;
+      font-size: 0.8rem; transition: all .15s; white-space: nowrap;
+    }
+    .btn-add:hover { border-color: #4f6ef7; color: #4f6ef7; background: #eef2ff; }
+    .btn-add.added { border-color: #16a34a; color: #16a34a; background: #f0fdf4; cursor: default; }
+
+    .statut-select {
+      padding: 0.25rem 0.5rem; border-radius: 6px; border: 1.5px solid #e5e7eb;
+      font-size: 0.8rem; cursor: pointer; outline: none; background: #fff; transition: border-color .15s;
+    }
+    .statut-select:focus { border-color: #4f6ef7; }
+    .statut-select[data-statut="À contacter"]   { color: #6b7280; }
+    .statut-select[data-statut="En cours"]       { color: #d97706; border-color: #fde68a; background: #fffbeb; }
+    .statut-select[data-statut="Message envoyé"] { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+    .statut-select[data-statut="Terminé"]        { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; }
+
+    .notes-input {
+      width: 100%; min-width: 120px; padding: 0.25rem 0.5rem;
+      border: 1.5px solid transparent; border-radius: 6px; font-size: 0.8rem;
+      background: transparent; color: #374151; outline: none; transition: border-color .15s, background .15s;
+    }
+    .notes-input:hover { border-color: #e5e7eb; background: #f9fafb; }
+    .notes-input:focus { border-color: #4f6ef7; background: #fff; }
+
+    .btn-del {
+      background: none; border: none; cursor: pointer; color: #d1d5db;
+      padding: 0.25rem; border-radius: 4px; transition: color .15s; line-height: 0;
+    }
+    .btn-del:hover { color: #ef4444; }
+
+    .empty-state { text-align: center; padding: 3rem 1rem; color: #9ca3af; }
+    .empty-state svg { margin-bottom: 0.75rem; opacity: .4; }
+    .empty-state p { font-size: 0.9rem; }
+    .loading { text-align: center; padding: 2rem; color: #9ca3af; font-size: 0.875rem; }
+
+    /* ── Bouton importer dans le header ── */
+    .btn-import {
+      display: flex; align-items: center; gap: 0.4rem;
+      padding: 0.45rem 0.9rem; border-radius: 7px; border: 1.5px solid rgba(255,255,255,.25);
+      background: rgba(255,255,255,.08); color: #fff; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-import:hover { background: rgba(255,255,255,.18); }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: #fff; border-radius: 16px; padding: 2rem;
+      width: 420px; max-width: 95vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      transform: translateY(12px); transition: transform .2s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal h2 { font-size: 1.05rem; margin-bottom: 0.35rem; }
+    .modal p  { font-size: 0.85rem; color: #6b7280; margin-bottom: 1.25rem; }
+
+    .modal-input-row { display: flex; gap: 0.6rem; }
+    .modal-input-row input {
+      flex: 1; padding: 0.65rem 1rem; border: 1.5px solid #d1d5db;
+      border-radius: 8px; font-size: 0.95rem; outline: none; transition: border-color .2s;
+    }
+    .modal-input-row input:focus { border-color: #4f6ef7; }
+    .btn-primary {
+      padding: 0.65rem 1.1rem; border-radius: 8px; border: none;
+      background: #4f6ef7; color: #fff; font-size: 0.9rem; font-weight: 600;
+      cursor: pointer; transition: background .15s; white-space: nowrap;
+    }
+    .btn-primary:hover { background: #3b5de7; }
+    .btn-primary:disabled { background: #a5b4fc; cursor: default; }
+
+    /* ── Progress block ── */
+    .progress-block { margin-top: 1.25rem; display: none; }
+    .progress-block.visible { display: block; }
+    .progress-label { font-size: 0.82rem; color: #374151; margin-bottom: 0.4rem; }
+    .progress-bar-wrap {
+      height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; background: #4f6ef7; border-radius: 999px;
+      width: 0%; transition: width .4s;
+    }
+    .progress-bar.indeterminate {
+      width: 40%; animation: slide 1.2s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(300%); }
+    }
+    .progress-status { margin-top: 0.5rem; font-size: 0.8rem; color: #6b7280; }
+    .progress-done  { color: #16a34a; font-weight: 600; }
+    .progress-error { color: #ef4444; font-weight: 600; }
+
+    .modal-actions { display: flex; justify-content: flex-end; margin-top: 1.5rem; }
+    .btn-ghost {
+      padding: 0.5rem 0.9rem; border-radius: 7px; border: 1.5px solid #e5e7eb;
+      background: none; font-size: 0.85rem; color: #6b7280; cursor: pointer; transition: all .15s;
+    }
+    .btn-ghost:hover { border-color: #9ca3af; color: #374151; }
+
+    /* ── Caches list dans la modal ── */
+    .cache-list { margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .cache-tag {
+      display: flex; align-items: center; gap: 0.35rem;
+      background: #f5f3ff; color: #7c3aed; border-radius: 6px;
+      padding: 0.25rem 0.4rem 0.25rem 0.6rem; font-size: 0.8rem; font-weight: 600;
+    }
+    .cache-tag span { font-weight: 400; color: #9ca3af; font-size: 0.75rem; }
+    .cache-tag .btn-tag-del {
+      background: none; border: none; cursor: pointer; line-height: 0;
+      color: #c4b5fd; padding: 0; border-radius: 3px; transition: color .15s;
+    }
+    .cache-tag .btn-tag-del:hover { color: #ef4444; }
+
+    /* ── Filtres statut prospection ── */
+    .statut-filters { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .statut-pill {
+      padding: 0.25rem 0.7rem; border-radius: 999px; border: 1.5px solid #e5e7eb;
+      background: #fff; font-size: 0.78rem; font-weight: 500; cursor: pointer;
+      color: #6b7280; transition: all .15s; white-space: nowrap;
+    }
+    .statut-pill:hover { border-color: #9ca3af; color: #374151; }
+    .statut-pill.active { border-color: currentColor; }
+    .statut-pill[data-statut="Tous"].active        { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+    .statut-pill[data-statut="À contacter"].active { background: #f3f4f6; color: #374151; border-color: #9ca3af; }
+    .statut-pill[data-statut="En cours"].active    { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+    .statut-pill[data-statut="Message envoyé"].active { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+    .statut-pill[data-statut="Terminé"].active     { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+    .statut-pill .pill-count { margin-left: 0.3rem; opacity: 0.65; font-weight: 400; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      background: #1a1a2e; color: #fff;
+      padding: 0.65rem 1.1rem; border-radius: 8px; font-size: 0.875rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      opacity: 0; transform: translateY(8px);
+      transition: opacity .25s, transform .25s;
+      pointer-events: none; z-index: 999;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+    <line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/>
+  </svg>
+  <h1>Annuaire des établissements actifs</h1>
+  <span id="headerSubtitle">Source SIRENE</span>
+  <button class="btn-import" id="btnOpenImport">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Importer un code postal
+  </button>
+</header>
+
+<!-- ── Modal import ── -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <h2>Importer un nouveau code postal</h2>
+    <p>Les données sont téléchargées depuis l'API SIRENE (INSEE) et mises en cache localement.</p>
+
+    <div class="modal-input-row">
+      <input id="cpInput" type="text" placeholder="Ex : 75001, 69000…" maxlength="5" />
+      <button class="btn-primary" id="btnDownload">Télécharger</button>
+    </div>
+
+    <div class="progress-block" id="progressBlock">
+      <div class="progress-label" id="progressLabel">Démarrage…</div>
+      <div class="progress-bar-wrap"><div class="progress-bar indeterminate" id="progressBar"></div></div>
+      <div class="progress-status" id="progressStatus"></div>
+    </div>
+
+    <div id="cacheListWrap">
+      <div style="font-size:.8rem;color:#6b7280;margin-top:1.25rem;margin-bottom:.4rem">Codes postaux en cache :</div>
+      <div class="cache-list" id="cacheList"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" id="btnCloseImport">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="recherche">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    Recherche
+  </button>
+  <button class="tab-btn" data-tab="prospection">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+    Prospection
+    <span id="prospecTabBadge" class="count-badge">0</span>
+  </button>
+</div>
+
+<main>
+  <!-- ── Onglet Recherche ── -->
+  <div id="tab-recherche" class="tab-panel active">
+    <div class="search-card">
+      <div class="search-row">
+
+        <!-- Sélecteur CP -->
+        <div class="field-wrap">
+          <label>Code postal</label>
+          <div class="select-wrap">
+            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+            <select id="cpSelect">
+              <option value="">Tous</option>
+            </select>
+            <svg class="chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Sélecteur activité -->
+        <div class="field-wrap" id="activiteWrap">
+          <label>Activité</label>
+          <div class="select-wrap">
+            <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            </svg>
+            <select id="activiteSelect">
+              <option value="">— Choisir une activité —</option>
+            </select>
+            <svg class="chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Filtre année -->
+        <div class="field-wrap filter-year">
+          <label for="anneeMin">Créée depuis</label>
+          <input id="anneeMin" type="number" placeholder="ex : 2015" min="1900" max="2030" />
+        </div>
+
+      </div>
+    </div>
+
+    <div id="resultsSection" style="display:none">
+      <div class="results-header">
+        <h2 id="resultsTitle">Résultats</h2>
+        <span id="badge" class="badge">0</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom</th><th>APE</th><th>Ville</th><th>CP</th><th>Création</th><th>SIRET</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="emptyState" class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <p>Sélectionnez une activité pour explorer les entreprises du secteur</p>
+    </div>
+  </div>
+
+  <!-- ── Onglet Prospection ── -->
+  <div id="tab-prospection" class="tab-panel">
+    <div class="results-header">
+      <h2>Mes entreprises à prospecter</h2>
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <div id="statutFilters" class="statut-filters"></div>
+        <span id="prospecBadge" class="badge">0</span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Nom</th><th>APE</th><th>Ville</th><th>Création</th>
+            <th>Activité</th><th>Statut</th><th>Notes</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="prospecTbody">
+          <tr><td colspan="8" class="loading">Chargement…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  // ── Onglets ────────────────────────────────────────────────────────────────
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+      if (btn.dataset.tab === "prospection") loadProspection();
+    });
+  });
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  let toastTimer = null;
+  function showToast(msg, duration = 3000) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), duration);
+  }
+
+  // ── Set sirets en prospection ──────────────────────────────────────────────
+  const prospecSet = new Set();
+
+  // ── Chargement des codes postaux en cache ─────────────────────────────────
+  const cpSelect      = document.getElementById("cpSelect");
+  const activiteSelect = document.getElementById("activiteSelect");
+  const anneeMin      = document.getElementById("anneeMin");
+  const tbody         = document.getElementById("tbody");
+  const resultsSection = document.getElementById("resultsSection");
+  const emptyState    = document.getElementById("emptyState");
+  const resultsTitle  = document.getElementById("resultsTitle");
+  const badge         = document.getElementById("badge");
+
+  let cachedCPs = []; // [{cp, count}]
+
+  async function loadCacheList() {
+    const res  = await fetch("/api/cache/list");
+    cachedCPs  = await res.json();
+
+    // Mettre à jour le sélecteur CP
+    const prev = cpSelect.value;
+    cpSelect.innerHTML = '<option value="">Tous</option>';
+    cachedCPs.forEach(({ cp, count }) => {
+      const opt = document.createElement("option");
+      opt.value = cp;
+      opt.textContent = `${cp} (${count.toLocaleString()} étab.)`;
+      cpSelect.appendChild(opt);
+    });
+    if (prev) cpSelect.value = prev;
+
+    // Sous-titre header
+    document.getElementById("headerSubtitle").textContent =
+      cachedCPs.map(c => c.cp).join(" · ") + " · Source SIRENE";
+
+    // Liste dans la modal
+    const cacheList = document.getElementById("cacheList");
+    cacheList.innerHTML = "";
+    if (cachedCPs.length === 0) {
+      cacheList.innerHTML = '<span style="font-size:.8rem;color:#9ca3af">Aucun cache disponible</span>';
+    } else {
+      cachedCPs.forEach(({ cp, count }) => {
+        const tag = document.createElement("div");
+        tag.className = "cache-tag";
+        tag.innerHTML = `
+          ${cp}<span>${count.toLocaleString()} étab.</span>
+          <button class="btn-tag-del" title="Supprimer ce cache" data-cp="${cp}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>`;
+        tag.querySelector(".btn-tag-del").addEventListener("click", () => deleteCache(cp));
+        cacheList.appendChild(tag);
+      });
+    }
+  }
+
+  async function loadActivites() {
+    const cp  = cpSelect.value;
+    const url = cp ? `/api/activites?cp=${cp}` : "/api/activites";
+    const res  = await fetch(url);
+    const data = await res.json();
+    const prev = activiteSelect.value;
+    activiteSelect.innerHTML = '<option value="">— Choisir une activité —</option>';
+    data.forEach(label => {
+      const opt = document.createElement("option");
+      opt.value = opt.textContent = label;
+      activiteSelect.appendChild(opt);
+    });
+    // Conserver la sélection si elle existe encore
+    if (prev && [...activiteSelect.options].some(o => o.value === prev)) {
+      activiteSelect.value = prev;
+    }
+  }
+
+  cpSelect.addEventListener("change", async () => {
+    await loadActivites();
+    const label = activiteSelect.value;
+    if (label) fetchEntreprises(label);
+    else { resultsSection.style.display = "none"; emptyState.style.display = "block"; }
+  });
+
+  activiteSelect.addEventListener("change", () => {
+    const label = activiteSelect.value;
+    if (label) fetchEntreprises(label);
+    else { resultsSection.style.display = "none"; emptyState.style.display = "block"; }
+  });
+
+  anneeMin.addEventListener("change", () => {
+    const label = activiteSelect.value;
+    if (label) fetchEntreprises(label);
+  });
+
+  async function fetchEntreprises(label) {
+    const annee = anneeMin.value || 0;
+    const cp    = cpSelect.value;
+    let url = `/api/entreprises?libelle=${encodeURIComponent(label)}&annee_min=${annee}`;
+    if (cp) url += `&cp=${cp}`;
+    tbody.innerHTML = `<tr><td colspan="7" class="loading">Chargement…</td></tr>`;
+    resultsSection.style.display = "block";
+    emptyState.style.display     = "none";
+    const res  = await fetch(url);
+    const data = await res.json();
+    renderTable(data, label);
+  }
+
+  function renderTable(rows, label) {
+    resultsTitle.textContent = label;
+    badge.textContent = `${rows.length} entreprise${rows.length > 1 ? "s" : ""}`;
+    tbody.innerHTML = "";
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="loading">Aucun résultat pour ce filtre.</td></tr>`;
+      return;
+    }
+    rows.forEach(r => {
+      const tr      = document.createElement("tr");
+      const already = prospecSet.has(r.siret);
+      tr.innerHTML = `
+        <td>${r.nom || "—"}</td>
+        <td><span class="ape-chip">${r.ape || "—"}</span></td>
+        <td>${r.ville || "—"}</td>
+        <td><span class="cp-chip">${r.code_postal || (cpSelect.value || "—")}</span></td>
+        <td>${r.annee_creation || "—"}</td>
+        <td style="font-family:monospace;font-size:.8rem;color:#9ca3af">${r.siret}</td>
+        <td><button class="btn-add${already ? " added" : ""}" data-siret="${r.siret}">
+          ${already ? "✓ Ajouté" : "+ Suivre"}</button></td>
+      `;
+      const btn = tr.querySelector(".btn-add");
+      if (!already) btn.addEventListener("click", () => addToProspection(r, btn));
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function addToProspection(r, btn) {
+    const res = await fetch("/api/prospection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(r),
+    });
+    if (res.ok || res.status === 409) {
+      prospecSet.add(r.siret);
+      btn.textContent = "✓ Ajouté";
+      btn.classList.add("added");
+      updateProspecTabBadge();
+      showToast(`"${r.nom || r.siret}" ajouté à la prospection`);
+    }
+  }
+
+  function updateProspecTabBadge() {
+    const b = document.getElementById("prospecTabBadge");
+    if (prospecSet.size > 0) { b.textContent = prospecSet.size; b.classList.add("visible"); }
+    else b.classList.remove("visible");
+  }
+
+  // ── Modal import ───────────────────────────────────────────────────────────
+  const importModal    = document.getElementById("importModal");
+  const cpInput        = document.getElementById("cpInput");
+  const btnDownload    = document.getElementById("btnDownload");
+  const progressBlock  = document.getElementById("progressBlock");
+  const progressBar    = document.getElementById("progressBar");
+  const progressLabel  = document.getElementById("progressLabel");
+  const progressStatus = document.getElementById("progressStatus");
+
+  document.getElementById("btnOpenImport").addEventListener("click", () => {
+    importModal.classList.add("open");
+    cpInput.focus();
+  });
+  document.getElementById("btnCloseImport").addEventListener("click", closeModal);
+  importModal.addEventListener("click", e => { if (e.target === importModal) closeModal(); });
+
+  function closeModal() {
+    if (pollTimer) return; // ne pas fermer pendant un téléchargement actif
+    importModal.classList.remove("open");
+  }
+
+  cpInput.addEventListener("keydown", e => { if (e.key === "Enter") btnDownload.click(); });
+
+  let pollTimer = null;
+  let downloadingCP = null;
+
+  btnDownload.addEventListener("click", async () => {
+    const cp = cpInput.value.trim();
+    if (!cp || cp.length < 4) { cpInput.focus(); return; }
+
+    btnDownload.disabled = true;
+    cpInput.disabled     = true;
+    progressBlock.classList.add("visible");
+    progressBar.className = "progress-bar indeterminate";
+    progressLabel.textContent = "Connexion à l'API SIRENE…";
+    progressStatus.textContent = "";
+    progressStatus.className = "progress-status";
+
+    downloadingCP = cp;
+
+    const res = await fetch("/api/cache/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cp }),
+    });
+
+    if (!res.ok && res.status !== 202) {
+      const err = await res.json();
+      progressLabel.textContent = "Erreur : " + (err.error || "inconnue");
+      progressBar.className = "progress-bar";
+      progressBar.style.width = "0%";
+      btnDownload.disabled = false;
+      cpInput.disabled     = false;
+      return;
+    }
+
+    pollTimer = setInterval(async () => {
+      const sr   = await fetch(`/api/cache/status/${cp}`);
+      const data = await sr.json();
+
+      progressLabel.textContent  = data.message || "…";
+      progressStatus.textContent = data.count > 0 ? `${data.count.toLocaleString()} établissements actifs` : "";
+
+      if (data.status === "done") {
+        clearInterval(pollTimer); pollTimer = null;
+        progressBar.className = "progress-bar";
+        progressBar.style.width = "100%";
+        progressStatus.className = "progress-status progress-done";
+        progressStatus.textContent = `✓ ${data.count.toLocaleString()} établissements chargés`;
+        btnDownload.disabled = false;
+        cpInput.disabled     = false;
+        cpInput.value        = "";
+        // Rafraîchir la liste et les sélecteurs
+        await loadCacheList();
+        await loadActivites();
+        showToast(`Code postal ${cp} importé avec succès (${data.count.toLocaleString()} étab.)`, 5000);
+      } else if (data.status === "error") {
+        clearInterval(pollTimer); pollTimer = null;
+        progressBar.className = "progress-bar";
+        progressBar.style.width = "0%";
+        progressStatus.className = "progress-status progress-error";
+        progressStatus.textContent = "Erreur : " + data.message;
+        btnDownload.disabled = false;
+        cpInput.disabled     = false;
+      }
+    }, 2000);
+  });
+
+  // ── Suppression d'un cache ─────────────────────────────────────────────────
+  async function deleteCache(cp) {
+    const res = await fetch(`/api/cache/${cp}`, { method: "DELETE" });
+    if (!res.ok) { showToast("Erreur lors de la suppression"); return; }
+    // Si ce CP était sélectionné, revenir à "Tous"
+    if (cpSelect.value === cp) cpSelect.value = "";
+    await loadCacheList();
+    await loadActivites();
+    // Vider les résultats si plus de données
+    const label = activiteSelect.value;
+    if (label) fetchEntreprises(label);
+    else { resultsSection.style.display = "none"; emptyState.style.display = "block"; }
+    showToast(`Cache ${cp} supprimé`);
+  }
+
+  // ── Onglet Prospection ─────────────────────────────────────────────────────
+  const prospecTbody   = document.getElementById("prospecTbody");
+  const prospecBadge   = document.getElementById("prospecBadge");
+  const statutFilters  = document.getElementById("statutFilters");
+  const STATUTS = ["À contacter", "En cours", "Message envoyé", "Terminé"];
+
+  let prospecData    = [];   // toutes les entrées chargées
+  let activeFilter   = "Tous";
+
+  // Construction des pills de filtre (une seule fois)
+  ;["Tous", ...STATUTS].forEach(s => {
+    const pill = document.createElement("button");
+    pill.className = "statut-pill" + (s === "Tous" ? " active" : "");
+    pill.dataset.statut = s;
+    pill.innerHTML = `${s}<span class="pill-count"></span>`;
+    pill.addEventListener("click", () => {
+      activeFilter = s;
+      document.querySelectorAll(".statut-pill").forEach(p => p.classList.remove("active"));
+      pill.classList.add("active");
+      renderProspection();
+    });
+    statutFilters.appendChild(pill);
+  });
+
+  function updatePillCounts() {
+    document.querySelectorAll(".statut-pill").forEach(pill => {
+      const s     = pill.dataset.statut;
+      const count = s === "Tous" ? prospecData.length : prospecData.filter(r => r.statut === s).length;
+      const span  = pill.querySelector(".pill-count");
+      span.textContent = count > 0 ? count : "";
+    });
+  }
+
+  async function loadProspection() {
+    prospecTbody.innerHTML = `<tr><td colspan="8" class="loading">Chargement…</td></tr>`;
+    const res  = await fetch("/api/prospection");
+    prospecData = await res.json();
+
+    prospecSet.clear();
+    prospecData.forEach(r => prospecSet.add(r.siret));
+    updateProspecTabBadge();
+    updatePillCounts();
+    renderProspection();
+  }
+
+  function renderProspection() {
+    const rows = activeFilter === "Tous"
+      ? prospecData
+      : prospecData.filter(r => r.statut === activeFilter);
+
+    prospecBadge.textContent = `${rows.length} entreprise${rows.length > 1 ? "s" : ""}`;
+    prospecTbody.innerHTML = "";
+
+    if (!rows.length) {
+      const msg = prospecData.length === 0
+        ? "Aucune entreprise suivie pour l'instant."
+        : `Aucun prospect avec le statut "${activeFilter}".`;
+      prospecTbody.innerHTML = `<tr><td colspan="8" class="loading">${msg}</td></tr>`;
+      return;
+    }
+
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.dataset.siret = r.siret;
+
+      const statutSelect = document.createElement("select");
+      statutSelect.className = "statut-select";
+      statutSelect.dataset.statut = r.statut;
+      STATUTS.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = opt.textContent = s;
+        if (s === r.statut) opt.selected = true;
+        statutSelect.appendChild(opt);
+      });
+      statutSelect.addEventListener("change", async () => {
+        const newStatut = statutSelect.value;
+        await fetch(`/api/prospection/${r.siret}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ statut: newStatut }),
+        });
+        statutSelect.dataset.statut = newStatut;
+        // Mettre à jour la donnée en mémoire
+        const entry = prospecData.find(d => d.siret === r.siret);
+        if (entry) entry.statut = newStatut;
+        updatePillCounts();
+        // Si un filtre actif est sélectionné, la ligne disparaît du tableau
+        if (activeFilter !== "Tous" && newStatut !== activeFilter) renderProspection();
+        showToast("Statut mis à jour");
+      });
+
+      const notesInput = document.createElement("input");
+      notesInput.type = "text";
+      notesInput.className = "notes-input";
+      notesInput.value = r.notes || "";
+      notesInput.placeholder = "Ajouter une note…";
+      let notesTimer = null;
+      notesInput.addEventListener("input", () => {
+        clearTimeout(notesTimer);
+        notesTimer = setTimeout(async () => {
+          await fetch(`/api/prospection/${r.siret}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes: notesInput.value }),
+          });
+          const entry = prospecData.find(d => d.siret === r.siret);
+          if (entry) entry.notes = notesInput.value;
+        }, 600);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn-del";
+      delBtn.title = "Retirer de la prospection";
+      delBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+        <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+      delBtn.addEventListener("click", async () => {
+        await fetch(`/api/prospection/${r.siret}`, { method: "DELETE" });
+        prospecSet.delete(r.siret);
+        prospecData = prospecData.filter(d => d.siret !== r.siret);
+        updateProspecTabBadge();
+        updatePillCounts();
+        renderProspection();
+        showToast(`"${r.nom || r.siret}" retiré`);
+        const addBtn = document.querySelector(`.btn-add[data-siret="${r.siret}"]`);
+        if (addBtn) { addBtn.textContent = "+ Suivre"; addBtn.classList.remove("added"); }
+      });
+
+      tr.innerHTML = `
+        <td>${r.nom || "—"}</td>
+        <td><span class="ape-chip">${r.ape || "—"}</span></td>
+        <td>${r.ville || "—"}</td>
+        <td>${r.annee_creation || "—"}</td>
+        <td style="font-size:.8rem;color:#6b7280">${r.libelle_activite || "—"}</td>
+        <td></td><td></td><td></td>
+      `;
+      tr.cells[5].appendChild(statutSelect);
+      tr.cells[6].appendChild(notesInput);
+      tr.cells[7].appendChild(delBtn);
+      prospecTbody.appendChild(tr);
+    });
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  (async function init() {
+    await loadCacheList();
+    await loadActivites();
+    const res  = await fetch("/api/prospection");
+    const data = await res.json();
+    data.forEach(r => prospecSet.add(r.siret));
+    updateProspecTabBadge();
+  })();
+</script>
+</body>
+</html>
