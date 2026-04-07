@@ -1,7 +1,7 @@
 # Environnement virtuel
 .venv/
 
-# Données SIRENE en cache (volumineuses, régénérables)
+# Données SIRENE en cache CSV (migrées en DB au démarrage, régénérables)
 cache_sirene/
 
 # Base de données de prospection (données personnelles)

@@ -1,8 +1,8 @@
+import os
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-import pandas as pd
-import sqlite3
 import threading
+import csv as csvlib
 import requests as req
 from datetime import datetime
 from pathlib import Path
@@ -11,56 +11,163 @@ app = Flask(__name__, static_folder=".")
 CORS(app)
 
 # ── Configuration ────────────────────────────────────────────────────────────
-CACHE_DIR = Path("cache_sirene")
-CACHE_DIR.mkdir(exist_ok=True)
-NAF_FILE  = Path("int_courts_naf_rev_2.csv")
-API_KEY   = "101af1cc-e294-46b0-8ebc-9e9488b302f3"
+DATABASE_URL = os.environ.get("DATABASE_URL")   # Supabase en prod, absent en local
+USE_PG       = bool(DATABASE_URL)
+CACHE_DIR    = Path("cache_sirene")
+NAF_FILE     = Path("int_courts_naf_rev_2.csv")
+API_KEY      = os.environ.get("SIRENE_API_KEY", "101af1cc-e294-46b0-8ebc-9e9488b302f3")
+DB_FILE      = Path("prospection.db")           # SQLite local uniquement
 
-# ── Chargement NAF ───────────────────────────────────────────────────────────
-df_naf = pd.read_csv(NAF_FILE, header=None, usecols=[1, 2],
-                     names=["code_naf", "libelle_activite"], dtype=str).dropna(subset=["code_naf"])
-df_naf["code_naf_norm"] = df_naf["code_naf"].str.strip().str.replace(".", "", regex=False).str.upper()
+# ── Table NAF en mémoire (≈700 lignes, statique) ────────────────────────────
+naf_map: dict[str, str] = {}
+with open(NAF_FILE, newline="", encoding="utf-8") as f:
+    for row in csvlib.reader(f):
+        if len(row) >= 3:
+            code = row[1].strip().replace(".", "").upper()
+            if code:
+                naf_map[code] = row[2].strip()
 
-def _merge_naf(df):
-    df["ape_norm"] = df["ape"].str.replace(".", "", regex=False).str.upper()
-    df = df.merge(df_naf[["code_naf_norm", "libelle_activite"]],
-                  left_on="ape_norm", right_on="code_naf_norm", how="left"
-                  ).drop(columns=["ape_norm", "code_naf_norm"])
-    df["annee_creation"] = pd.to_numeric(df["annee_creation"], errors="coerce")
-    return df
+def _naf_libelle(ape: str) -> str:
+    return naf_map.get(ape.replace(".", "").upper(), "")
 
-# ── Chargement de tous les CSV en cache ──────────────────────────────────────
-# dfs : { cp: DataFrame }
-dfs_lock = threading.Lock()
-dfs: dict[str, pd.DataFrame] = {}
+# ── Couche base de données (SQLite local / PostgreSQL prod) ──────────────────
+class _Conn:
+    """Wrapper fin qui unifie sqlite3 et psycopg2."""
 
-def load_csv(cp: str) -> pd.DataFrame:
-    path = CACHE_DIR / f"cp_{cp}_actifs.csv"
-    df   = pd.read_csv(path, dtype={"siret": str, "siren": str, "code_postal": str})
-    return _merge_naf(df)
+    def __init__(self):
+        if USE_PG:
+            import psycopg2
+            import psycopg2.extras
+            self._conn = psycopg2.connect(DATABASE_URL,
+                                          cursor_factory=psycopg2.extras.RealDictCursor)
+        else:
+            import sqlite3
+            self._conn = sqlite3.connect(str(DB_FILE))
+            self._conn.row_factory = sqlite3.Row
 
-def load_all_cached():
-    for csv in CACHE_DIR.glob("cp_*_actifs.csv"):
-        cp = csv.stem.split("_")[1]
-        with dfs_lock:
-            dfs[cp] = load_csv(cp)
-        print(f"  Chargé : {cp} ({len(dfs[cp])} établissements)")
+    def _sql(self, sql: str) -> str:
+        """Remplace les ? par %s pour psycopg2."""
+        return sql.replace("?", "%s") if USE_PG else sql
 
-load_all_cached()
+    def execute(self, sql: str, params=()):
+        if USE_PG:
+            cur = self._conn.cursor()
+            cur.execute(self._sql(sql), list(params))
+            return cur
+        return self._conn.execute(sql, params)
+
+    def executemany(self, sql: str, rows):
+        if USE_PG:
+            import psycopg2.extras
+            cur = self._conn.cursor()
+            psycopg2.extras.execute_batch(cur, self._sql(sql), rows, page_size=500)
+            return cur
+        return self._conn.executemany(sql, rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc, *_):
+        try:
+            if exc:
+                self._conn.rollback()
+            else:
+                self._conn.commit()
+        finally:
+            self._conn.close()
+
+def get_db() -> _Conn:
+    return _Conn()
+
+# ── Initialisation des tables ────────────────────────────────────────────────
+NOW_DEFAULT = "NOW()" if USE_PG else "datetime('now','localtime')"
+
+def init_db():
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS etablissements (
+                siret            TEXT,
+                siren            TEXT,
+                nom              TEXT,
+                ape              TEXT,
+                code_postal      TEXT NOT NULL,
+                ville            TEXT,
+                date_creation    TEXT,
+                annee_creation   INTEGER,
+                tranche_effectif TEXT,
+                libelle_activite TEXT,
+                PRIMARY KEY (siret, code_postal)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_etab_cp       ON etablissements(code_postal)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_etab_activite  ON etablissements(libelle_activite)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_etab_annee     ON etablissements(annee_creation)")
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS prospection (
+                siret            TEXT PRIMARY KEY,
+                nom              TEXT,
+                ape              TEXT,
+                ville            TEXT,
+                annee_creation   TEXT,
+                libelle_activite TEXT,
+                statut           TEXT NOT NULL DEFAULT 'À contacter',
+                notes            TEXT NOT NULL DEFAULT '',
+                date_ajout       TEXT NOT NULL DEFAULT ({NOW_DEFAULT})
+            )
+        """)
+    if not USE_PG:
+        _migrate_csv_to_db()
+
+def _migrate_csv_to_db():
+    """Import des CSV existants dans SQLite au premier démarrage (local uniquement)."""
+    if not CACHE_DIR.exists():
+        return
+    for csv_path in CACHE_DIR.glob("cp_*_actifs.csv"):
+        cp = csv_path.stem.split("_")[1]
+        with get_db() as conn:
+            already = conn.execute(
+                "SELECT COUNT(*) FROM etablissements WHERE code_postal = ?", (cp,)
+            ).fetchone()[0]
+        if already:
+            continue
+        print(f"  Migration CSV → DB pour {cp}…")
+        rows = []
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            for r in csvlib.DictReader(f):
+                annee_raw = r.get("annee_creation", "")
+                try:
+                    annee = int(float(annee_raw)) if annee_raw else None
+                except ValueError:
+                    annee = None
+                rows.append((
+                    r.get("siret", ""), r.get("siren", ""), r.get("nom", ""),
+                    r.get("ape", ""), r.get("code_postal", cp), r.get("ville", ""),
+                    r.get("date_creation", ""), annee, r.get("tranche_effectif", ""),
+                    _naf_libelle(r.get("ape", "")),
+                ))
+        with get_db() as conn:
+            conn.executemany("""
+                INSERT INTO etablissements
+                (siret, siren, nom, ape, code_postal, ville, date_creation,
+                 annee_creation, tranche_effectif, libelle_activite)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+            """, rows)
+        print(f"  {len(rows)} établissements importés pour {cp}.")
+
+init_db()
 
 # ── Suivi des téléchargements en cours ───────────────────────────────────────
-# { cp: {status: 'running'|'done'|'error', count: int, message: str} }
 download_jobs: dict[str, dict] = {}
 
 def _extraire_secteur(cp: str):
-    """Télécharge les établissements actifs d'un code postal depuis l'API SIRENE."""
+    """Télécharge les établissements actifs d'un CP et les insère en DB."""
     download_jobs[cp] = {"status": "running", "count": 0, "message": "Connexion à l'API SIRENE…"}
 
     url     = "https://api.insee.fr/api-sirene/3.11/siret"
     headers = {"X-INSEE-Api-Key-Integration": API_KEY, "Accept": "application/json"}
-
-    resultats = []
-    curseur   = "*"
+    rows    = []
+    curseur = "*"
 
     try:
         while True:
@@ -70,7 +177,7 @@ def _extraire_secteur(cp: str):
             if response.status_code != 200:
                 download_jobs[cp] = {
                     "status":  "error",
-                    "count":   len(resultats),
+                    "count":   len(rows),
                     "message": f"Erreur API {response.status_code} : {response.text[:200]}"
                 }
                 return
@@ -86,86 +193,60 @@ def _extraire_secteur(cp: str):
                 if periode.get("etatAdministratifEtablissement") != "A":
                     continue
 
-                ape   = periode.get("activitePrincipaleEtablissement") or ""
-                unite = e.get("uniteLegale", {})
-                nom   = (
+                ape     = periode.get("activitePrincipaleEtablissement") or ""
+                unite   = e.get("uniteLegale", {})
+                nom     = (
                     unite.get("denominationUniteLegale")
-                    or f"{unite.get('prenomUsuelUniteLegale', '')} {unite.get('nomUniteLegale', '')}"
+                    or f"{unite.get('prenomUsuelUniteLegale', '')} {unite.get('nomUniteLegale', '')}".strip()
                 )
-                adresse        = e.get("adresseEtablissement", {})
-                date_raw       = e.get("dateCreationEtablissement")
-                annee_creation = None
+                adresse  = e.get("adresseEtablissement", {})
+                date_raw = e.get("dateCreationEtablissement")
+                annee    = None
                 if date_raw:
                     try:
-                        annee_creation = datetime.strptime(date_raw, "%Y-%m-%d").year
+                        annee = datetime.strptime(date_raw, "%Y-%m-%d").year
                     except ValueError:
                         pass
 
-                resultats.append({
-                    "nom":              nom.strip(),
-                    "siret":            e.get("siret", ""),
-                    "siren":            e.get("siren", ""),
-                    "ape":              ape,
-                    "code_postal":      adresse.get("codePostalEtablissement", ""),
-                    "ville":            adresse.get("libelleCommuneEtablissement", ""),
-                    "date_creation":    date_raw or "",
-                    "annee_creation":   annee_creation,
-                    "tranche_effectif": e.get("trancheEffectifsEtablissement") or "",
-                })
+                rows.append((
+                    e.get("siret", ""), e.get("siren", ""), nom.strip(), ape,
+                    adresse.get("codePostalEtablissement", cp),
+                    adresse.get("libelleCommuneEtablissement", ""),
+                    date_raw or "", annee,
+                    e.get("trancheEffectifsEtablissement") or "",
+                    _naf_libelle(ape),
+                ))
 
-            download_jobs[cp]["count"]   = len(resultats)
-            download_jobs[cp]["message"] = f"{len(resultats)} établissements actifs récupérés…"
+            download_jobs[cp]["count"]   = len(rows)
+            download_jobs[cp]["message"] = f"{len(rows)} établissements actifs récupérés…"
 
             curseur_suivant = data.get("header", {}).get("curseurSuivant")
             if not curseur_suivant or curseur_suivant == curseur:
                 break
             curseur = curseur_suivant
 
-        df = pd.DataFrame(resultats)
-        cache_path = CACHE_DIR / f"cp_{cp}_actifs.csv"
-        df.to_csv(cache_path, index=False)
-
-        with dfs_lock:
-            dfs[cp] = load_csv(cp)
+        with get_db() as conn:
+            conn.execute("DELETE FROM etablissements WHERE code_postal = ?", (cp,))
+            conn.executemany("""
+                INSERT INTO etablissements
+                (siret, siren, nom, ape, code_postal, ville, date_creation,
+                 annee_creation, tranche_effectif, libelle_activite)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+            """, rows)
 
         download_jobs[cp] = {
             "status":  "done",
-            "count":   len(resultats),
-            "message": f"{len(resultats)} établissements actifs chargés."
+            "count":   len(rows),
+            "message": f"{len(rows)} établissements actifs chargés."
         }
 
     except Exception as exc:
         download_jobs[cp] = {
             "status":  "error",
-            "count":   len(resultats) if resultats else 0,
+            "count":   len(rows),
             "message": str(exc)
         }
-
-# ── Base SQLite de prospection ───────────────────────────────────────────────
-DB_FILE = Path("prospection.db")
-
-def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    with get_db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS prospection (
-                siret            TEXT PRIMARY KEY,
-                nom              TEXT,
-                ape              TEXT,
-                ville            TEXT,
-                annee_creation   TEXT,
-                libelle_activite TEXT,
-                statut           TEXT NOT NULL DEFAULT 'À contacter',
-                notes            TEXT NOT NULL DEFAULT '',
-                date_ajout       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            )
-        """)
-
-init_db()
 
 # ── Routes statiques ─────────────────────────────────────────────────────────
 @app.route("/")
@@ -175,93 +256,98 @@ def index():
 # ── Routes cache ─────────────────────────────────────────────────────────────
 @app.route("/api/cache/list")
 def cache_list():
-    """Liste les codes postaux disponibles en cache."""
-    with dfs_lock:
-        result = [
-            {"cp": cp, "count": len(df)}
-            for cp, df in sorted(dfs.items())
-        ]
-    return jsonify(result)
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT code_postal AS cp, COUNT(*) AS count
+            FROM etablissements
+            GROUP BY code_postal
+            ORDER BY code_postal
+        """).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route("/api/cache/<cp>", methods=["DELETE"])
 def cache_delete(cp):
-    """Supprime le CSV en cache et décharge les données pour un code postal."""
-    csv_path = CACHE_DIR / f"cp_{cp}_actifs.csv"
-    if not csv_path.exists():
+    with get_db() as conn:
+        deleted = conn.execute(
+            "DELETE FROM etablissements WHERE code_postal = ?", (cp,)
+        ).rowcount
+    if deleted == 0:
         return jsonify({"error": "cache introuvable"}), 404
-    csv_path.unlink()
-    with dfs_lock:
-        dfs.pop(cp, None)
     download_jobs.pop(cp, None)
     return jsonify({"ok": True})
 
 
 @app.route("/api/cache/download", methods=["POST"])
 def cache_download():
-    """Lance le téléchargement d'un code postal en arrière-plan."""
     data = request.get_json(silent=True) or {}
     cp   = str(data.get("cp", "")).strip()
     if not cp:
         return jsonify({"error": "cp requis"}), 400
     if cp in download_jobs and download_jobs[cp]["status"] == "running":
         return jsonify({"error": "téléchargement déjà en cours"}), 409
-    thread = threading.Thread(target=_extraire_secteur, args=(cp,), daemon=True)
-    thread.start()
+    threading.Thread(target=_extraire_secteur, args=(cp,), daemon=True).start()
     return jsonify({"ok": True, "cp": cp}), 202
 
 
 @app.route("/api/cache/status/<cp>")
 def cache_status(cp):
-    """Retourne l'état du téléchargement pour un code postal."""
     if cp not in download_jobs:
-        # Déjà en cache ?
-        with dfs_lock:
-            if cp in dfs:
-                return jsonify({"status": "done", "count": len(dfs[cp]), "message": "Déjà en cache."})
+        with get_db() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM etablissements WHERE code_postal = ?", (cp,)
+            ).fetchone()[0]
+        if count:
+            return jsonify({"status": "done", "count": count, "message": "Déjà en cache."})
         return jsonify({"status": "idle", "count": 0, "message": ""})
     return jsonify(download_jobs[cp])
 
 # ── Routes SIRENE ────────────────────────────────────────────────────────────
 @app.route("/api/activites")
 def activites():
-    """Retourne tous les libellés d'activité pour un CP, triés alphabétiquement."""
     cp = request.args.get("cp", "").strip()
-    with dfs_lock:
-        if cp and cp in dfs:
-            df = dfs[cp]
-        elif dfs:
-            df = pd.concat(dfs.values(), ignore_index=True)
+    with get_db() as conn:
+        if cp:
+            rows = conn.execute("""
+                SELECT DISTINCT libelle_activite FROM etablissements
+                WHERE code_postal = ? AND libelle_activite != ''
+                ORDER BY libelle_activite
+            """, (cp,)).fetchall()
         else:
-            return jsonify([])
-    libelles = sorted(df["libelle_activite"].dropna().unique().tolist())
-    return jsonify(libelles)
+            rows = conn.execute("""
+                SELECT DISTINCT libelle_activite FROM etablissements
+                WHERE libelle_activite != ''
+                ORDER BY libelle_activite
+            """).fetchall()
+    return jsonify([r["libelle_activite"] for r in rows])
 
 
 @app.route("/api/entreprises")
 def entreprises():
-    """Retourne les entreprises dont le libellé correspond exactement."""
     libelle = request.args.get("libelle", "").strip()
     annee   = request.args.get("annee_min", type=int, default=0)
     cp      = request.args.get("cp", "").strip()
     if not libelle:
         return jsonify([])
-    with dfs_lock:
-        if cp and cp in dfs:
-            df = dfs[cp]
-        elif dfs:
-            df = pd.concat(dfs.values(), ignore_index=True)
-        else:
-            return jsonify([])
-    mask = df["libelle_activite"] == libelle
+
+    conditions = ["libelle_activite = ?"]
+    params     = [libelle]
+    if cp:
+        conditions.append("code_postal = ?")
+        params.append(cp)
     if annee:
-        mask &= df["annee_creation"] >= annee
-    cols   = ["nom", "siret", "ape", "ville", "annee_creation", "libelle_activite"]
-    result = (df[mask][cols]
-              .sort_values("annee_creation", ascending=False)
-              .fillna("")
-              .to_dict(orient="records"))
-    return jsonify(result)
+        conditions.append("annee_creation >= ?")
+        params.append(annee)
+
+    sql = f"""
+        SELECT nom, siret, ape, code_postal, ville, annee_creation, libelle_activite
+        FROM etablissements
+        WHERE {' AND '.join(conditions)}
+        ORDER BY annee_creation DESC
+    """
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 # ── Routes prospection ───────────────────────────────────────────────────────
 @app.route("/api/prospection", methods=["GET"])
@@ -285,7 +371,7 @@ def add_prospection():
             """, (siret, data.get("nom", ""), data.get("ape", ""), data.get("ville", ""),
                   str(data.get("annee_creation", "")), data.get("libelle_activite", "")))
         return jsonify({"ok": True}), 201
-    except sqlite3.IntegrityError:
+    except Exception:
         return jsonify({"error": "déjà dans la liste"}), 409
 
 
@@ -310,5 +396,7 @@ def delete_prospection(siret):
 
 
 if __name__ == "__main__":
-    print("Serveur démarré sur http://localhost:5000")
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    debug = not USE_PG
+    print(f"Serveur démarré sur http://localhost:{port} ({'PostgreSQL' if USE_PG else 'SQLite'})")
+    app.run(debug=debug, port=port, host="0.0.0.0")
