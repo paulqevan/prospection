@@ -283,6 +283,50 @@
     .statut-pill[data-statut="Terminé"].active     { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
     .statut-pill .pill-count { margin-left: 0.3rem; opacity: 0.65; font-weight: 400; }
 
+    /* ── Mobile ── */
+    @media (max-width: 640px) {
+      /* Header : masque le sous-titre, réduit le bouton import */
+      header { padding: 0.9rem 1rem; gap: 0.5rem; }
+      header span { display: none; }
+      .btn-import span { display: none; }   /* cache le texte, garde l'icône */
+      .btn-import { padding: 0.45rem 0.6rem; }
+
+      /* Onglets */
+      .tabs { margin-top: 1rem; padding: 0 0.75rem; }
+      .tab-btn { padding: 0.5rem 0.9rem; font-size: 0.82rem; }
+
+      /* Carte de recherche */
+      .search-card { padding: 1rem; border-radius: 0 8px 8px 8px; }
+      .search-row { flex-direction: column; }
+      #activiteWrap { min-width: 0; }
+      .filter-year input { width: 100%; }
+
+      /* Tableaux : scroll horizontal */
+      .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { min-width: 520px; }
+
+      /* Header résultats : empile sur deux lignes si besoin */
+      .results-header { flex-wrap: wrap; gap: 0.5rem; }
+      .results-header > div { flex-wrap: wrap; }
+
+      /* Filtres statut : scroll horizontal plutôt que retour à la ligne */
+      .statut-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.25rem; }
+
+      /* Modal plein écran sur mobile */
+      .modal {
+        width: 100%; max-width: 100%;
+        border-radius: 16px 16px 0 0;
+        max-height: 90vh; overflow-y: auto;
+      }
+      .modal-overlay { align-items: flex-end; }
+
+      /* Toast plus petit */
+      #toast { left: 1rem; right: 1rem; text-align: center; }
+
+      /* Main padding réduit */
+      main { padding: 0 0.75rem 2rem; }
+    }
+
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: 1.5rem; right: 1.5rem;
@@ -309,7 +353,7 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
     </svg>
-    Importer un code postal
+    <span>Importer un code postal</span>
   </button>
 </header>
 
