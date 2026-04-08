@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for
 from flask_cors import CORS
 import threading
 import csv as csvlib
@@ -8,7 +8,89 @@ from datetime import datetime
 from pathlib import Path
 
 app = Flask(__name__, static_folder=".")
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 CORS(app)
+
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+
+# ── Authentification ──────────────────────────────────────────────────────────
+LOGIN_PAGE = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Connexion</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f0f2f5; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card {
+      background: #fff; border-radius: 16px; padding: 2.5rem 2rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,.1); width: 340px; max-width: 95vw;
+    }
+    .logo { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.75rem; }
+    .logo svg { color: #4f6ef7; }
+    .logo h1 { font-size: 1.1rem; font-weight: 700; color: #1a1a2e; }
+    label { font-size: 0.8rem; color: #6b7280; display: block; margin-bottom: 0.35rem; }
+    input[type=password] {
+      width: 100%; padding: 0.7rem 1rem; border: 1.5px solid #d1d5db;
+      border-radius: 8px; font-size: 0.95rem; outline: none; transition: border-color .2s;
+      margin-bottom: 1rem;
+    }
+    input[type=password]:focus { border-color: #4f6ef7; }
+    button {
+      width: 100%; padding: 0.75rem; border-radius: 8px; border: none;
+      background: #4f6ef7; color: #fff; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    button:hover { background: #3b5de7; }
+    .error {
+      background: #fef2f2; color: #dc2626; border-radius: 8px;
+      padding: 0.6rem 0.9rem; font-size: 0.82rem; margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="7" width="20" height="14" rx="2"/>
+        <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+      </svg>
+      <h1>Prospection SIRENE</h1>
+    </div>
+    {error}
+    <form method="POST" action="/login">
+      <label for="pwd">Mot de passe</label>
+      <input id="pwd" type="password" name="password" autofocus placeholder="••••••••" />
+      <button type="submit">Accéder</button>
+    </form>
+  </div>
+</body>
+</html>"""
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        if request.form.get("password") == APP_PASSWORD:
+            session["auth"] = True
+            return redirect("/")
+        return LOGIN_PAGE.replace("{error}", '<div class="error">Mot de passe incorrect.</div>')
+    return LOGIN_PAGE.replace("{error}", "")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+@app.before_request
+def require_auth():
+    if APP_PASSWORD and request.endpoint not in ("login", "static"):
+        if not session.get("auth"):
+            return redirect("/login")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ.get("DATABASE_URL")   # Supabase en prod, absent en local
