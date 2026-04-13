@@ -267,6 +267,25 @@
     }
     .cache-tag .btn-tag-del:hover { color: #ef4444; }
 
+    /* ── Tri colonne ── */
+    .th-sort {
+      cursor: pointer; user-select: none; white-space: nowrap;
+    }
+    .th-sort:hover { color: #374151; }
+    .sort-icon { margin-left: 0.3rem; font-size: 0.75rem; opacity: 0.45; }
+    .th-sort.asc  .sort-icon,
+    .th-sort.desc .sort-icon { opacity: 1; color: #4f6ef7; }
+
+    .date-input {
+      padding: 0.25rem 0.5rem; border: 1.5px solid transparent;
+      border-radius: 6px; font-size: 0.8rem; background: transparent;
+      color: #374151; outline: none; transition: border-color .15s, background .15s;
+      width: 108px; font-family: inherit; letter-spacing: 0.02em;
+    }
+    .date-input:hover { border-color: #e5e7eb; background: #f9fafb; }
+    .date-input:focus { border-color: #4f6ef7; background: #fff; }
+    .date-input.invalid { border-color: #fca5a5; background: #fef2f2; }
+
     /* ── Filtres statut prospection ── */
     .statut-filters { display: flex; gap: 0.35rem; flex-wrap: wrap; }
     .statut-pill {
@@ -487,11 +506,13 @@
         <thead>
           <tr>
             <th>Nom</th><th>APE</th><th>Ville</th><th>Création</th>
-            <th>Activité</th><th>Statut</th><th>Notes</th><th></th>
+            <th>Activité</th><th>Statut</th><th>Notes</th>
+            <th id="thDate" class="th-sort">Date contact <span class="sort-icon">↕</span></th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="prospecTbody">
-          <tr><td colspan="8" class="loading">Chargement…</td></tr>
+          <tr><td colspan="9" class="loading">Chargement…</td></tr>
         </tbody>
       </table>
     </div>
@@ -784,8 +805,42 @@
   const statutFilters  = document.getElementById("statutFilters");
   const STATUTS = ["À contacter", "En cours", "Message envoyé", "Terminé"];
 
-  let prospecData    = [];   // toutes les entrées chargées
-  let activeFilter   = "Tous";
+  let prospecData  = [];
+  let activeFilter = "Tous";
+  let sortOrder    = null; // null | 'asc' | 'desc'
+
+  // ── Helpers format date JJ/MM/AAAA ↔ AAAA-MM-JJ ──────────────────────────
+  function isoToFr(iso) {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-");
+    return d && m && y ? `${d}/${m}/${y}` : "";
+  }
+  function frToIso(fr) {
+    const clean = fr.replace(/\D/g, "");
+    if (clean.length < 8) return null;
+    const d = clean.slice(0, 2), m = clean.slice(2, 4), y = clean.slice(4, 8);
+    const date = new Date(`${y}-${m}-${d}`);
+    if (isNaN(date)) return null;
+    return `${y}-${m}-${d}`;
+  }
+  function autoFormatDate(input) {
+    // Insère les "/" automatiquement pendant la frappe
+    let v = input.value.replace(/\D/g, "");
+    if (v.length > 8) v = v.slice(0, 8);
+    if (v.length >= 5)      input.value = v.slice(0,2) + "/" + v.slice(2,4) + "/" + v.slice(4);
+    else if (v.length >= 3) input.value = v.slice(0,2) + "/" + v.slice(2);
+    else                    input.value = v;
+  }
+
+  // ── Tri au clic sur l'en-tête "Date contact" ──────────────────────────────
+  document.getElementById("thDate").addEventListener("click", () => {
+    sortOrder = sortOrder === null ? "asc" : sortOrder === "asc" ? "desc" : null;
+    const th = document.getElementById("thDate");
+    const icon = th.querySelector(".sort-icon");
+    th.className     = "th-sort" + (sortOrder ? " " + sortOrder : "");
+    icon.textContent = sortOrder === "asc" ? "↑" : sortOrder === "desc" ? "↓" : "↕";
+    renderProspection();
+  });
 
   // Construction des pills de filtre (une seule fois)
   ;["Tous", ...STATUTS].forEach(s => {
@@ -812,7 +867,7 @@
   }
 
   async function loadProspection() {
-    prospecTbody.innerHTML = `<tr><td colspan="8" class="loading">Chargement…</td></tr>`;
+    prospecTbody.innerHTML = `<tr><td colspan="9" class="loading">Chargement…</td></tr>`;
     const res  = await fetch("/api/prospection");
     prospecData = await res.json();
 
@@ -824,9 +879,20 @@
   }
 
   function renderProspection() {
-    const rows = activeFilter === "Tous"
+    let rows = activeFilter === "Tous"
       ? prospecData
       : prospecData.filter(r => r.statut === activeFilter);
+
+    // Tri par date contact
+    if (sortOrder) {
+      rows = [...rows].sort((a, b) => {
+        const da = a.date_contact || "", db = b.date_contact || "";
+        if (da === db) return 0;
+        if (!da) return 1;   // sans date → en bas
+        if (!db) return -1;
+        return sortOrder === "asc" ? da.localeCompare(db) : db.localeCompare(da);
+      });
+    }
 
     prospecBadge.textContent = `${rows.length} entreprise${rows.length > 1 ? "s" : ""}`;
     prospecTbody.innerHTML = "";
@@ -835,7 +901,7 @@
       const msg = prospecData.length === 0
         ? "Aucune entreprise suivie pour l'instant."
         : `Aucun prospect avec le statut "${activeFilter}".`;
-      prospecTbody.innerHTML = `<tr><td colspan="8" class="loading">${msg}</td></tr>`;
+      prospecTbody.innerHTML = `<tr><td colspan="9" class="loading">${msg}</td></tr>`;
       return;
     }
 
@@ -906,17 +972,45 @@
         if (addBtn) { addBtn.textContent = "+ Suivre"; addBtn.classList.remove("added"); }
       });
 
+      const dateInput = document.createElement("input");
+      dateInput.type        = "text";
+      dateInput.className   = "date-input";
+      dateInput.placeholder = "JJ/MM/AAAA";
+      dateInput.maxLength   = 10;
+      dateInput.value       = isoToFr(r.date_contact);
+
+      dateInput.addEventListener("input", () => {
+        autoFormatDate(dateInput);
+        const iso = frToIso(dateInput.value);
+        dateInput.classList.toggle("invalid", dateInput.value.length === 10 && !iso);
+      });
+
+      dateInput.addEventListener("blur", async () => {
+        const iso = frToIso(dateInput.value);
+        if (!iso && dateInput.value !== "") return; // date invalide, on ne sauvegarde pas
+        const val = iso || "";
+        await fetch(`/api/prospection/${r.siret}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date_contact: val }),
+        });
+        const entry = prospecData.find(d => d.siret === r.siret);
+        if (entry) entry.date_contact = val;
+        if (sortOrder) renderProspection();
+      });
+
       tr.innerHTML = `
         <td>${r.nom || "—"}</td>
         <td><span class="ape-chip">${r.ape || "—"}</span></td>
         <td>${r.ville || "—"}</td>
         <td>${r.annee_creation || "—"}</td>
         <td style="font-size:.8rem;color:#6b7280">${r.libelle_activite || "—"}</td>
-        <td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td>
       `;
       tr.cells[5].appendChild(statutSelect);
       tr.cells[6].appendChild(notesInput);
-      tr.cells[7].appendChild(delBtn);
+      tr.cells[7].appendChild(dateInput);
+      tr.cells[8].appendChild(delBtn);
       prospecTbody.appendChild(tr);
     });
   }

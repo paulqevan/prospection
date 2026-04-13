@@ -194,9 +194,15 @@ def init_db():
                 libelle_activite TEXT,
                 statut           TEXT NOT NULL DEFAULT 'À contacter',
                 notes            TEXT NOT NULL DEFAULT '',
+                date_contact     TEXT NOT NULL DEFAULT '',
                 date_ajout       TEXT NOT NULL DEFAULT ({NOW_DEFAULT})
             )
         """)
+        # Migration : ajout de date_contact sur les bases existantes
+        try:
+            conn.execute("ALTER TABLE prospection ADD COLUMN date_contact TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass  # colonne déjà présente
     if not USE_PG:
         _migrate_csv_to_db()
 
@@ -460,7 +466,7 @@ def add_prospection():
 @app.route("/api/prospection/<siret>", methods=["PATCH"])
 def update_prospection(siret):
     data   = request.get_json(silent=True) or {}
-    fields = {k: v for k, v in data.items() if k in ("statut", "notes")}
+    fields = {k: v for k, v in data.items() if k in ("statut", "notes", "date_contact")}
     if not fields:
         return jsonify({"error": "rien à mettre à jour"}), 400
     set_clause = ", ".join(f"{k} = ?" for k in fields)
