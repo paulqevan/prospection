@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Recherche secteur — SIRENE</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -312,6 +313,54 @@
     .statut-pill[data-statut="Terminé"].active     { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
     .statut-pill .pill-count { margin-left: 0.3rem; opacity: 0.65; font-weight: 400; }
 
+    /* ── DataViz ── */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .kpi-card {
+      background: #fff; border-radius: 12px;
+      padding: 1.1rem 1.25rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+    .kpi-value {
+      font-size: 1.75rem; font-weight: 700; color: #1a1a2e; line-height: 1;
+      margin-bottom: 0.3rem;
+    }
+    .kpi-label { font-size: 0.78rem; color: #6b7280; }
+    .kpi-card.accent-blue  .kpi-value { color: #4f6ef7; }
+    .kpi-card.accent-green .kpi-value { color: #16a34a; }
+    .kpi-card.accent-amber .kpi-value { color: #d97706; }
+    .kpi-card.accent-violet .kpi-value { color: #7c3aed; }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .chart-card {
+      background: #fff; border-radius: 12px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+    .chart-card.span-2 { grid-column: span 2; }
+    .chart-title {
+      font-size: 0.88rem; font-weight: 600; color: #374151;
+      margin-bottom: 1rem;
+    }
+    .chart-container { position: relative; }
+    #dvMap { border-radius: 8px; overflow: hidden; height: 380px; }
+
+    .dv-toolbar {
+      background: #fff; border-radius: 0 12px 12px 12px;
+      padding: 1rem 1.5rem; box-shadow: 0 2px 12px rgba(0,0,0,.07);
+      margin-bottom: 1.25rem; display: flex; align-items: flex-end; gap: 1rem;
+    }
+    .dv-empty {
+      text-align: center; padding: 4rem 1rem; color: #9ca3af; font-size: 0.9rem;
+    }
+
     /* ── Mobile ── */
     @media (max-width: 640px) {
       /* Header : masque le sous-titre, réduit le bouton import */
@@ -354,6 +403,12 @@
 
       /* Main padding réduit */
       main { padding: 0 0.75rem 2rem; }
+
+      /* DataViz mobile */
+      .kpi-row { grid-template-columns: 1fr 1fr; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .chart-card.span-2 { grid-column: span 1; }
+      #dvMap { height: 280px; }
     }
 
     /* ── Toast ── */
@@ -490,6 +545,13 @@
     Prospection
     <span id="prospecTabBadge" class="count-badge">0</span>
   </button>
+  <button class="tab-btn" data-tab="dataviz">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+      <line x1="6" y1="20" x2="6" y2="14"/>
+    </svg>
+    DataViz
+  </button>
 </div>
 
 <main>
@@ -597,6 +659,75 @@
       </table>
     </div>
   </div>
+  <!-- ── Onglet DataViz ── -->
+  <div id="tab-dataviz" class="tab-panel">
+    <div class="dv-toolbar">
+      <div class="field-wrap">
+        <label>Code postal</label>
+        <div class="select-wrap">
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+          </svg>
+          <select id="dvCpSelect">
+            <option value="">Tous les codes postaux</option>
+          </select>
+          <svg class="chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div id="dvEmpty" class="dv-empty" style="display:none">
+      Aucune donnée disponible — importez au moins un code postal.
+    </div>
+
+    <div id="dvContent">
+      <div class="kpi-row">
+        <div class="kpi-card accent-blue">
+          <div class="kpi-value" id="kpiEtab">—</div>
+          <div class="kpi-label">Établissements actifs</div>
+        </div>
+        <div class="kpi-card accent-violet">
+          <div class="kpi-value" id="kpiCPs">—</div>
+          <div class="kpi-label">Codes postaux importés</div>
+        </div>
+        <div class="kpi-card accent-amber">
+          <div class="kpi-value" id="kpiPros">—</div>
+          <div class="kpi-label">En prospection</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-value" id="kpiDone">—</div>
+          <div class="kpi-label">Complétés</div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card span-2">
+          <div class="chart-title">Top 20 activités</div>
+          <div class="chart-container" style="height:360px">
+            <canvas id="chartActivites"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Créations par année (15 dernières années)</div>
+          <div class="chart-container" style="height:240px">
+            <canvas id="chartCreations"></canvas>
+          </div>
+        </div>
+        <div class="chart-card" style="display:flex;flex-direction:column;align-items:center">
+          <div class="chart-title" style="align-self:flex-start">Statuts de prospection</div>
+          <div class="chart-container" style="height:240px;width:100%;display:flex;align-items:center;justify-content:center">
+            <canvas id="chartStatuts"></canvas>
+          </div>
+        </div>
+        <div class="chart-card span-2">
+          <div class="chart-title">Carte des codes postaux importés</div>
+          <div id="dvMap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 
 <div id="toast"></div>
@@ -610,6 +741,10 @@
       btn.classList.add("active");
       document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
       if (btn.dataset.tab === "prospection") loadProspection();
+      if (btn.dataset.tab === "dataviz") {
+        loadDvStats();
+        setTimeout(() => { if (dvMap) dvMap.invalidateSize(); }, 200);
+      }
     });
   });
 
@@ -656,6 +791,9 @@
     // Sous-titre header
     document.getElementById("headerSubtitle").textContent =
       cachedCPs.map(c => c.cp).join(" · ") + " · Source SIRENE";
+
+    // Synchroniser le sélecteur DataViz
+    populateDvCpSelect(cachedCPs.map(c => c.cp));
 
     // Liste dans la modal
     const cacheList = document.getElementById("cacheList");
@@ -1213,6 +1351,160 @@
     });
   }
 
+  // ── DataViz ────────────────────────────────────────────────────────────────
+  let dvMap = null;
+  let dvChartActivites = null;
+  let dvChartCreations = null;
+  let dvChartStatuts   = null;
+  let dvMarkersLayer   = null;
+
+  async function initDvMap() {
+    if (dvMap) return;
+    dvMap = L.map("dvMap").setView([46.8, 2.4], 5);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18,
+    }).addTo(dvMap);
+    dvMarkersLayer = L.layerGroup().addTo(dvMap);
+  }
+
+  async function geocodeCP(cp) {
+    try {
+      const r = await fetch(`https://geo.api.gouv.fr/communes?codePostal=${cp}&fields=nom,centre&limit=1`);
+      const data = await r.json();
+      if (data.length && data[0].centre) return data[0].centre.coordinates; // [lng, lat]
+    } catch (_) {}
+    return null;
+  }
+
+  async function loadDvStats() {
+    const cp = document.getElementById("dvCpSelect").value;
+    const url = "/api/stats" + (cp ? `?cp=${encodeURIComponent(cp)}` : "");
+    const res  = await fetch(url);
+    const d    = await res.json();
+
+    // KPIs
+    document.getElementById("kpiEtab").textContent = d.total_etab.toLocaleString("fr-FR");
+    document.getElementById("kpiCPs").textContent  = d.by_cp.length;
+    document.getElementById("kpiPros").textContent = d.total_prospection.toLocaleString("fr-FR");
+    const done = (d.by_statut.find(s => s.statut === "Terminé") || {}).count || 0;
+    document.getElementById("kpiDone").textContent = done.toLocaleString("fr-FR");
+
+    // Chart: Top activités (horizontal bar)
+    const labelsAct = d.top_activites.map(a => a.libelle || a.ape || "—");
+    const dataAct   = d.top_activites.map(a => a.count);
+    if (dvChartActivites) dvChartActivites.destroy();
+    dvChartActivites = new Chart(document.getElementById("chartActivites"), {
+      type: "bar",
+      data: {
+        labels: labelsAct,
+        datasets: [{ label: "Établissements", data: dataAct,
+          backgroundColor: "rgba(99,102,241,0.75)", borderRadius: 4 }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: "rgba(0,0,0,.06)" } },
+          y: { ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+
+    // Chart: Créations par année
+    const labelsYr = d.creations.map(c => c.annee);
+    const dataYr   = d.creations.map(c => c.count);
+    if (dvChartCreations) dvChartCreations.destroy();
+    dvChartCreations = new Chart(document.getElementById("chartCreations"), {
+      type: "bar",
+      data: {
+        labels: labelsYr,
+        datasets: [{ label: "Créations", data: dataYr,
+          backgroundColor: "rgba(16,185,129,0.75)", borderRadius: 4 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false } },
+          y: { grid: { color: "rgba(0,0,0,.06)" } },
+        },
+      },
+    });
+
+    // Chart: Statuts prospection (doughnut)
+    const STATUT_COLORS = {
+      "À contacter": "#6366f1", "En cours": "#f59e0b",
+      "Message envoyé": "#3b82f6", "Terminé": "#10b981", "Sans suite": "#9ca3af",
+    };
+    const labelsSt = d.by_statut.map(s => s.statut);
+    const dataSt   = d.by_statut.map(s => s.count);
+    const colorsSt = labelsSt.map(l => STATUT_COLORS[l] || "#cbd5e1");
+    if (dvChartStatuts) dvChartStatuts.destroy();
+    if (dataSt.length) {
+      dvChartStatuts = new Chart(document.getElementById("chartStatuts"), {
+        type: "doughnut",
+        data: {
+          labels: labelsSt,
+          datasets: [{ data: dataSt, backgroundColor: colorsSt, borderWidth: 2 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom", labels: { font: { size: 12 } } } },
+          cutout: "60%",
+        },
+      });
+    } else {
+      const ctx = document.getElementById("chartStatuts").getContext("2d");
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.font = "14px sans-serif";
+      ctx.fillStyle = "#9ca3af";
+      ctx.textAlign = "center";
+      ctx.fillText("Aucune prospection", ctx.canvas.width / 2, ctx.canvas.height / 2);
+    }
+
+    // Map: markers par code postal
+    await initDvMap();
+    dvMarkersLayer.clearLayers();
+    const maxCount = Math.max(1, ...d.by_cp.map(c => c.count));
+    for (const item of d.by_cp) {
+      const coords = await geocodeCP(item.cp);
+      if (!coords) continue;
+      const [lng, lat] = coords;
+      const radius = 6 + Math.round((item.count / maxCount) * 24);
+      const circle = L.circleMarker([lat, lng], {
+        radius, color: "#6366f1", fillColor: "#6366f1",
+        fillOpacity: 0.45, weight: 1.5,
+      });
+      circle.bindPopup(
+        `<b>${item.cp}</b><br>${item.count.toLocaleString("fr-FR")} établissements`
+      );
+      dvMarkersLayer.addLayer(circle);
+    }
+    if (d.by_cp.length) {
+      const bounds = dvMarkersLayer.getLayers()
+        .map(l => l.getLatLng())
+        .filter(Boolean);
+      if (bounds.length) dvMap.fitBounds(L.latLngBounds(bounds), { padding: [30, 30] });
+    }
+  }
+
+  // populate CP select in DataViz
+  function populateDvCpSelect(cps) {
+    const sel = document.getElementById("dvCpSelect");
+    const current = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    cps.forEach(cp => {
+      const opt = document.createElement("option");
+      opt.value = cp; opt.textContent = cp;
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  }
+
+  document.getElementById("dvCpSelect").addEventListener("change", loadDvStats);
+
   // ── Init ───────────────────────────────────────────────────────────────────
   (async function init() {
     await loadCacheList();
@@ -1223,5 +1515,7 @@
     updateProspecTabBadge();
   })();
 </script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body>
 </html>

@@ -468,6 +468,55 @@ def entreprises():
         rows = conn.execute(sql, params).fetchall()
     return jsonify([dict(r) for r in rows])
 
+# ── Route DataViz ────────────────────────────────────────────────────────────
+@app.route("/api/stats")
+def stats():
+    cp       = request.args.get("cp", "").strip()
+    cp_cond  = "AND code_postal = ?" if cp else ""
+    params   = [cp] if cp else []
+    min_year = datetime.now().year - 14
+
+    with get_db() as conn:
+        by_cp = conn.execute("""
+            SELECT code_postal AS cp, COUNT(*) AS count
+            FROM etablissements GROUP BY code_postal ORDER BY cp
+        """).fetchall()
+
+        total_etab = conn.execute(
+            f"SELECT COUNT(*) FROM etablissements {f'WHERE code_postal = ?' if cp else ''}",
+            params
+        ).fetchone()[0]
+
+        top_activites = conn.execute(f"""
+            SELECT libelle_activite AS libelle, COUNT(*) AS count
+            FROM etablissements
+            WHERE libelle_activite != '' {cp_cond}
+            GROUP BY libelle_activite ORDER BY count DESC LIMIT 20
+        """, params).fetchall()
+
+        creations = conn.execute(f"""
+            SELECT annee_creation AS annee, COUNT(*) AS count
+            FROM etablissements
+            WHERE annee_creation IS NOT NULL AND annee_creation >= ? {cp_cond}
+            GROUP BY annee_creation ORDER BY annee_creation
+        """, [min_year] + params).fetchall()
+
+        by_statut = conn.execute("""
+            SELECT statut, COUNT(*) AS count FROM prospection GROUP BY statut
+        """).fetchall()
+
+        total_prospection = conn.execute("SELECT COUNT(*) FROM prospection").fetchone()[0]
+
+    return jsonify({
+        "total_etab":        total_etab,
+        "total_prospection": total_prospection,
+        "by_cp":             [dict(r) for r in by_cp],
+        "top_activites":     [dict(r) for r in top_activites],
+        "creations":         [dict(r) for r in creations],
+        "by_statut":         [dict(r) for r in by_statut],
+    })
+
+
 # ── Routes prospection ───────────────────────────────────────────────────────
 @app.route("/api/prospection", methods=["GET"])
 def get_prospection():
