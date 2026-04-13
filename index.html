@@ -267,6 +267,16 @@
     }
     .cache-tag .btn-tag-del:hover { color: #ef4444; }
 
+    /* ── Bouton ajout manuel ── */
+    .btn-add-manual {
+      display: flex; align-items: center; gap: 0.35rem;
+      padding: 0.35rem 0.8rem; border-radius: 7px;
+      border: 1.5px solid #4f6ef7; background: #eef2ff;
+      color: #4f6ef7; font-size: 0.8rem; font-weight: 600;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .btn-add-manual:hover { background: #4f6ef7; color: #fff; }
+
     /* ── Tri colonne ── */
     .th-sort {
       cursor: pointer; user-select: none; white-space: nowrap;
@@ -404,6 +414,68 @@
   </div>
 </div>
 
+<!-- ── Modal ajout manuel ── -->
+<div class="modal-overlay" id="addManualModal">
+  <div class="modal">
+    <h2>Ajouter une entreprise manuellement</h2>
+    <p>Saisissez le SIRET (14 chiffres) — les informations seront récupérées automatiquement si la base est importée.</p>
+
+    <div class="field-wrap" style="margin-bottom:1rem">
+      <label for="manualSiret">SIRET *</label>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <input id="manualSiret" type="text" maxlength="14" placeholder="12345678901234"
+               style="flex:1;padding:.65rem 1rem;border:1.5px solid #d1d5db;border-radius:8px;font-size:.95rem;outline:none;font-family:monospace;transition:border-color .2s"
+               oninput="this.value=this.value.replace(/\D/g,'')" />
+        <span id="siretStatus" style="font-size:.8rem;white-space:nowrap"></span>
+      </div>
+    </div>
+
+    <div id="manualCompanyInfo" style="display:none;background:#f8fafc;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.85rem;border:1.5px solid #e5e7eb">
+      <strong id="manualCompanyNom"></strong>
+      <div id="manualCompanyDetail" style="color:#6b7280;margin-top:.2rem"></div>
+    </div>
+
+    <div id="manualWarning" style="display:none;background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:.65rem 1rem;margin-bottom:1rem;font-size:.82rem;color:#92400e">
+      ⚠ Ce SIRET n'est pas encore dans la base. Les informations seront complétées automatiquement lors de l'import du code postal correspondant.
+    </div>
+
+    <div class="field-wrap" style="margin-bottom:.75rem">
+      <label for="manualNom">Nom de l'entreprise</label>
+      <input id="manualNom" type="text" placeholder="Rempli automatiquement si trouvé…"
+             style="width:100%;padding:.6rem 1rem;border:1.5px solid #d1d5db;border-radius:8px;font-size:.9rem;outline:none;transition:border-color .2s" />
+    </div>
+
+    <div style="display:flex;gap:.75rem;margin-bottom:.75rem;flex-wrap:wrap">
+      <div class="field-wrap" style="flex:1;min-width:120px">
+        <label for="manualStatut">Statut</label>
+        <select id="manualStatut" class="statut-select" data-statut="À contacter"
+                style="width:100%;padding:.6rem .75rem">
+          <option>À contacter</option>
+          <option>En cours</option>
+          <option>Message envoyé</option>
+          <option>Terminé</option>
+        </select>
+      </div>
+      <div class="field-wrap" style="flex:1;min-width:120px">
+        <label for="manualDate">Date contact</label>
+        <input id="manualDate" type="text" class="date-input" placeholder="JJ/MM/AAAA" maxlength="10"
+               style="width:100%;border-color:#d1d5db;padding:.6rem .75rem" />
+      </div>
+    </div>
+
+    <div class="field-wrap" style="margin-bottom:1.25rem">
+      <label for="manualNotes">Notes</label>
+      <input id="manualNotes" type="text" placeholder="Optionnel…"
+             style="width:100%;padding:.6rem 1rem;border:1.5px solid #d1d5db;border-radius:8px;font-size:.9rem;outline:none;transition:border-color .2s" />
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <button class="btn-ghost" id="btnCloseAddManual">Annuler</button>
+      <button class="btn-primary" id="btnSubmitManual" disabled>Ajouter</button>
+    </div>
+  </div>
+</div>
+
 <div class="tabs">
   <button class="tab-btn active" data-tab="recherche">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -495,7 +567,15 @@
   <!-- ── Onglet Prospection ── -->
   <div id="tab-prospection" class="tab-panel">
     <div class="results-header">
-      <h2>Mes entreprises à prospecter</h2>
+      <div style="display:flex;align-items:center;gap:0.75rem">
+        <h2>Mes entreprises à prospecter</h2>
+        <button class="btn-add-manual" id="btnAddManual">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Ajouter manuellement
+        </button>
+      </div>
       <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
         <div id="statutFilters" class="statut-filters"></div>
         <span id="prospecBadge" class="badge">0</span>
@@ -782,6 +862,124 @@
         cpInput.disabled     = false;
       }
     }, 2000);
+  });
+
+  // ── Modal ajout manuel ────────────────────────────────────────────────────
+  const addManualModal   = document.getElementById("addManualModal");
+  const manualSiret      = document.getElementById("manualSiret");
+  const siretStatus      = document.getElementById("siretStatus");
+  const manualCompanyInfo= document.getElementById("manualCompanyInfo");
+  const manualWarning    = document.getElementById("manualWarning");
+  const manualNom        = document.getElementById("manualNom");
+  const manualStatut     = document.getElementById("manualStatut");
+  const manualDate       = document.getElementById("manualDate");
+  const manualNotes      = document.getElementById("manualNotes");
+  const btnSubmitManual  = document.getElementById("btnSubmitManual");
+
+  let manualFoundData = null; // données SIRENE si le SIRET est trouvé
+
+  document.getElementById("btnAddManual").addEventListener("click", () => {
+    // Réinitialiser la modal
+    manualSiret.value = ""; manualNom.value = ""; manualNotes.value = "";
+    manualDate.value  = ""; manualStatut.value = "À contacter";
+    manualCompanyInfo.style.display = "none";
+    manualWarning.style.display     = "none";
+    siretStatus.textContent         = "";
+    btnSubmitManual.disabled        = true;
+    manualFoundData = null;
+    addManualModal.classList.add("open");
+    manualSiret.focus();
+  });
+
+  document.getElementById("btnCloseAddManual").addEventListener("click", () => {
+    addManualModal.classList.remove("open");
+  });
+  addManualModal.addEventListener("click", e => {
+    if (e.target === addManualModal) addManualModal.classList.remove("open");
+  });
+
+  // Lookup SIRET dès que 14 chiffres saisis
+  let siretLookupTimer = null;
+  manualSiret.addEventListener("input", () => {
+    clearTimeout(siretLookupTimer);
+    const val = manualSiret.value;
+    manualCompanyInfo.style.display = "none";
+    manualWarning.style.display     = "none";
+    siretStatus.textContent         = "";
+    manualFoundData = null;
+    btnSubmitManual.disabled = val.length !== 14;
+    if (val.length === 14) {
+      siretStatus.textContent = "Recherche…";
+      siretStatus.style.color = "#9ca3af";
+      siretLookupTimer = setTimeout(() => lookupSiret(val), 400);
+    }
+  });
+
+  async function lookupSiret(siret) {
+    const res = await fetch(`/api/etablissement/${siret}`);
+    if (res.ok) {
+      manualFoundData = await res.json();
+      manualNom.value = manualFoundData.nom || "";
+      document.getElementById("manualCompanyNom").textContent = manualFoundData.nom || siret;
+      document.getElementById("manualCompanyDetail").textContent =
+        [manualFoundData.libelle_activite, manualFoundData.ville, manualFoundData.code_postal]
+        .filter(Boolean).join(" · ");
+      manualCompanyInfo.style.display = "block";
+      siretStatus.textContent = "✓ Trouvé";
+      siretStatus.style.color = "#16a34a";
+    } else {
+      manualFoundData = null;
+      manualWarning.style.display = "block";
+      siretStatus.textContent     = "Non trouvé";
+      siretStatus.style.color     = "#d97706";
+    }
+    btnSubmitManual.disabled = false;
+  }
+
+  // Auto-format date dans la modal
+  manualDate.addEventListener("input", () => autoFormatDate(manualDate));
+
+  btnSubmitManual.addEventListener("click", async () => {
+    const siret = manualSiret.value.trim();
+    if (siret.length !== 14) return;
+
+    const dateIso = frToIso(manualDate.value) || "";
+    const payload = {
+      siret,
+      nom:              manualNom.value.trim() || (manualFoundData?.nom || ""),
+      ape:              manualFoundData?.ape              || "",
+      ville:            manualFoundData?.ville            || "",
+      annee_creation:   manualFoundData?.annee_creation   || "",
+      libelle_activite: manualFoundData?.libelle_activite || "",
+    };
+
+    const res = await fetch("/api/prospection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 409) { showToast("Ce SIRET est déjà dans la prospection"); return; }
+    if (!res.ok) { showToast("Erreur lors de l'ajout"); return; }
+
+    // Mettre à jour le statut et les champs optionnels
+    const patches = {};
+    if (manualStatut.value !== "À contacter") patches.statut = manualStatut.value;
+    if (dateIso)                              patches.date_contact = dateIso;
+    if (manualNotes.value.trim())             patches.notes = manualNotes.value.trim();
+    if (Object.keys(patches).length) {
+      await fetch(`/api/prospection/${siret}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patches),
+      });
+    }
+
+    prospecSet.add(siret);
+    updateProspecTabBadge();
+    addManualModal.classList.remove("open");
+    showToast(`"${payload.nom || siret}" ajouté à la prospection`);
+    await loadProspection(); // recharger pour afficher la nouvelle ligne
   });
 
   // ── Suppression d'un cache ─────────────────────────────────────────────────

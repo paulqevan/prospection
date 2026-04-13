@@ -322,6 +322,24 @@ def _extraire_secteur(cp: str):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT DO NOTHING
             """, rows)
+            # Mise à jour des entrées de prospection ajoutées manuellement
+            # dont les infos étaient manquantes (nom vide = ajout sans base importée)
+            conn.execute("""
+                UPDATE prospection SET
+                  nom = COALESCE(NULLIF(nom, ''),
+                        (SELECT nom FROM etablissements WHERE siret = prospection.siret)),
+                  ape = COALESCE(NULLIF(ape, ''),
+                        (SELECT ape FROM etablissements WHERE siret = prospection.siret)),
+                  ville = COALESCE(NULLIF(ville, ''),
+                          (SELECT ville FROM etablissements WHERE siret = prospection.siret)),
+                  annee_creation = COALESCE(NULLIF(annee_creation, ''),
+                                   CAST((SELECT annee_creation FROM etablissements
+                                         WHERE siret = prospection.siret) AS TEXT)),
+                  libelle_activite = COALESCE(NULLIF(libelle_activite, ''),
+                                     (SELECT libelle_activite FROM etablissements
+                                      WHERE siret = prospection.siret))
+                WHERE siret IN (SELECT siret FROM etablissements WHERE code_postal = ?)
+            """, (cp,))
 
         download_jobs[cp] = {
             "status":  "done",
@@ -408,6 +426,19 @@ def activites():
                 ORDER BY libelle_activite
             """).fetchall()
     return jsonify([r["libelle_activite"] for r in rows])
+
+
+@app.route("/api/etablissement/<siret>")
+def get_etablissement(siret):
+    """Recherche un établissement par SIRET exact."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT nom, siret, ape, code_postal, ville, annee_creation, libelle_activite"
+            " FROM etablissements WHERE siret = ? LIMIT 1", (siret,)
+        ).fetchone()
+    if row:
+        return jsonify(dict(row))
+    return jsonify(None), 404
 
 
 @app.route("/api/entreprises")
